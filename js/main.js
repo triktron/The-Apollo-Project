@@ -3,6 +3,9 @@
 // });
 
 var world;
+var stats = new Stats();
+stats.showPanel( 1 ); // 0: fps, 1: ms, 2: mb, 3+: custom
+document.body.appendChild( stats.dom );
 
 function loadShip(str) {
   str = lzw_decode(str).split("|");
@@ -49,7 +52,7 @@ function lzw_decode(s) {
     return out.join("");
 }
 
-// const gl = document.querySelector("#main").getContext("2d");
+const gl = document.querySelector("#main").getContext("2d");
 
 function resize() {
   var width = window.innerWidth;
@@ -75,71 +78,87 @@ var parts = [
   {w:50,h:40,id:8,type:"thruster-up"},
   {w:50,h:40,id:9,type:"thruster-down"}
 ]
-var needToRender = true;
-function checkRender() {
-  if (resize() || needToRender) {
-     needToRender = false;
-     render();
-   }
-   requestAnimationFrame(checkRender);
-}
 
 var colors = [ "#FFF7A5", "#FFA5E0", "#A5B3FF", "#BFFFA5", "#FFCBA5" ];
-function render() {
+
+var screenX = 100;
+var screenY = 300;
+
+var fixedTimeStep = 1 / 60; // seconds
+var maxSubSteps = 10; // Max sub steps to catch up with the wall clock
+var lastTime;
+
+var keys = {
+    '37': 0, // left
+    '39': 0, // right
+    '38': 0, // up
+    '40': 0 // down
+};
+document.body.addEventListener("keydown",function (evt){
+    keys[evt.keyCode] = 1;
+});
+document.body.addEventListener("keyup",function (evt){
+    keys[evt.keyCode] = 0;
+});
+
+function render(time) {
+  stats.begin();
+  resize()
+
+  for (var s of ship.bodies[0].shapes) {
+    var t = 150, p = [s.position[0] - ship.bodies[0].w / 2, s.position[1] - ship.bodies[0].h / 2];
+    if (keys[37] || keys[38] || keys[39] || keys[40]) ship.bodies[0].wakeUp();
+    if (keys[38] && s.partType == "thruster-down")  ship.bodies[0].applyForceLocal(p2.vec2.fromValues(0,-t) , p);
+    if (keys[40] && s.partType == "thruster-up")    ship.bodies[0].applyForceLocal(p2.vec2.fromValues(0,t), p);
+    if (keys[37] && s.partType == "thruster-right") ship.bodies[0].applyForceLocal(p2.vec2.fromValues(-t,0), p);
+    if (keys[39] && s.partType == "thruster-left")  ship.bodies[0].applyForceLocal(p2.vec2.fromValues(t,0) , p);
+  }
+
+  var deltaTime = lastTime ? (time - lastTime) / 1000 : 0;
+  lastTime = time;
+
+    // Move bodies forward in time
+    world.step(fixedTimeStep, deltaTime, maxSubSteps);
+
   gl.clearRect(0, 0, gl.canvas.width, gl.canvas.height);
 
-  for (var c in ship.chunks) {
-    gl.fillStyle = colors[c];
-  for (var o of ship.chunks[c]) {}
-  }
+  for (var b of ship.bodies)
+  var offsetX = screenX + (b.aabb.upperBound[0] + b.aabb.lowerBound[0]) / 2
+  var offsetY = screenY + (b.aabb.upperBound[1] + b.aabb.lowerBound[1]) / 2
+  gl.save();
+  gl.translate(offsetX, offsetY);
+  gl.rotate(b.interpolatedAngle)
+    for (var p of b.shapes) {
+      gl.beginPath();
+      gl.arc(0,0,5,0,2*Math.PI);
+      for (var v in p.vertices) {
+        gl[v == 0 ? "moveTo" : "lineTo"](p.position[0] + p.vertices[v][0] - b.w/2,p.position[1] + p.vertices[v][1] - b.h/2);
+      }
+      gl.lineTo(p.position[0] + p.vertices[0][0] - b.w/2,p.position[1] + p.vertices[0][1] - b.h/2)
+      gl.stroke();
+    }
+    gl.restore();
+    gl.strokeRect(screenX + b.aabb.lowerBound[0],screenY + b.aabb.lowerBound[1],b.aabb.upperBound[0] - b.aabb.lowerBound[0],b.aabb.upperBound[1] - b.aabb.lowerBound[1])
+
+  stats.end();
+  requestAnimationFrame(render);
 }
 
 function main() {
-  // if (!gl) {
-  //   alert("Unable to initialize WebGL. Your browser or machine may not support it.");
-  //   return;
-  // }
+  if (!gl) {
+    alert("Unable to initialize WebGL. Your browser or machine may not support it.");
+    return;
+  }
 
-  // checkRender();
-  var app = new p2.WebGLRenderer(function(){
+  requestAnimationFrame(render);
       world = new p2.World({
           gravity : [0,0]
       });
 
-      this.setWorld(world);
+      // this.setWorld(world);
 
       loadShip2();
       // loadShip("1~0,0|ĀĂ10Ą7~5Ă25|ċč,1ď");
-
-
-      // Key controls
-      var keys = {
-          '37': 0, // left
-          '39': 0, // right
-          '38': 0, // up
-          '40': 0 // down
-      };
-      this.on("keydown",function (evt){
-          keys[evt.keyCode] = 1;
-          onInputChange();
-      });
-      this.on("keyup",function (evt){
-          keys[evt.keyCode] = 0;
-          onInputChange();
-      });
-      function onInputChange(){
-        for (var s of ship.bodies[0].shapes) {
-          var t = 3, p = [s.position[0] - ship.bodies[0].w / 2, s.position[1] + ship.bodies[0].h / 2];
-          if (keys[37] || keys[38] || keys[39] || keys[40]) ship.bodies[0].wakeUp();
-          if (keys[38] && s.partType == "thruster-down")  ship.bodies[0].applyForceLocal(p2.vec2.fromValues(0,t) , p);
-          if (keys[40] && s.partType == "thruster-up")    ship.bodies[0].applyForceLocal(p2.vec2.fromValues(0,-t), p);
-          if (keys[37] && s.partType == "thruster-right") ship.bodies[0].applyForceLocal(p2.vec2.fromValues(-t,0), p);
-          if (keys[39] && s.partType == "thruster-left")  ship.bodies[0].applyForceLocal(p2.vec2.fromValues(t,0) , p);
-        }
-      }
-
-      this.frame(0, 0, 6, 6);
-  });
 }
 window.addEventListener('load', main);
 
@@ -215,23 +234,23 @@ class Ship {
       var shape;
       switch (parts[o.id].type) {
         case "thruster-right":
-          shape = new p2.Convex({ vertices: [[-o.w/200, o.h/200], [-o.w/200, -o.h/200], [o.w/200, 0]] });
+          shape = new p2.Convex({ vertices: [[-o.w/2, o.h/2], [-o.w/2, -o.h/2], [o.w/2, 0]] });
           break;
         case "thruster-left":
-          shape = new p2.Convex({ vertices: [[o.w/200, -o.h/200], [o.w/200, o.h/200], [-o.w/200, 0]] });
+          shape = new p2.Convex({ vertices: [[o.w/2, -o.h/2], [o.w/2, o.h/2], [-o.w/2, 0]] });
           break;
         case "thruster-up":
-        shape = new p2.Convex({ vertices: [[-o.w/200, -o.h/200], [o.w/200, -o.h/200], [0, o.h/200]] });
+        shape = new p2.Convex({ vertices: [[0, -o.h/2], [o.w/2, o.h/2], [-o.w/2, o.h/2]] });
           break;
         case "thruster-down":
-        shape = new p2.Convex({ vertices: [[0, -o.h/200], [o.w/200, o.h/200], [-o.w/200, o.h/200]] });
+        shape = new p2.Convex({ vertices: [[-o.w/2, -o.h/2], [o.w/2, -o.h/2], [0, o.h/2]] });
           break;
         default:
-          shape = new p2.Box({ width: o.w/100, height: o.h/100 });
+          shape = new p2.Box({ width: o.w, height: o.h });
       }
 
       shape.partType = parts[o.id].type;
-      this.bodies[id].addShape(shape, [o.x/100 + o.w/200,-(o.y/100 + o.h/200)]);
+      this.bodies[id].addShape(shape, [o.x + o.w/2,o.y + o.h/2]);
       var aabb = this.bodies[id].getAABB();
       this.bodies[id].w = Math.max(this.bodies[id].w, Math.abs(aabb.lowerBound[0]), Math.abs(aabb.upperBound[0]))
       this.bodies[id].h = Math.max(this.bodies[id].h, Math.abs(aabb.lowerBound[1]), Math.abs(aabb.upperBound[1]))
